@@ -118,6 +118,7 @@ def _sample_phase_constitution(model, sampler, fixed_grid, pdens, phase_local_co
     # we do not consider that 'linearly constrained' for the purposes of sampling,
     # since the default sampler handles that case with an efficient method.
     linearly_constrained_space = charge_constrained_space or (len(phase_local_conditions.keys()) > 0)
+    phase_local_constraints = _get_local_constraint_equations(model, phase_local_conditions)
 
     if charge_constrained_space:
         endmembers = points
@@ -159,11 +160,23 @@ def _sample_phase_constitution(model, sampler, fixed_grid, pdens, phase_local_co
                             second_em * lingrid[::-1][np.newaxis].T
                             for first_em, second_em in em_pairs]
             points = np.concatenate(list(itertools.chain([points], extra_points)))
+    # A fixed-composition phase has no sampling degrees of freedom, but its sole
+    # constitution must still satisfy any phase-local conditions. Without this
+    # check, calculate() labels the fixed constitution with an incompatible
+    # phase-local condition coordinate.
+    if phase_local_constraints and sum(sublattice_dof) == len(sublattice_dof):
+        condition_jac, condition_rhs = _jacobian_from_constraints(
+            phase_local_constraints,
+            model.site_fractions,
+        )
+        condition_residuals = condition_jac.dot(points.T).T - condition_rhs
+        if np.any(np.abs(condition_residuals) >= 1e-6):
+            return np.full(points.shape, np.nan)
+
     # Sample composition space for more points
     if sum(sublattice_dof) > len(sublattice_dof):
         if linearly_constrained_space:
             model_constraints = model.get_internal_constraints()
-            phase_local_constraints = _get_local_constraint_equations(model, phase_local_conditions)
             constraint_jac, constraint_rhs = _jacobian_from_constraints(model_constraints + phase_local_constraints,
                                                                         model.site_fractions)
             num_points = (pdens ** 2) * (constraint_jac.shape[1] - constraint_jac.shape[0])
@@ -521,6 +534,7 @@ def calculate(dbf, comps, phases, mode=None, output='GM', fake_points=False, bro
         mod = models[phase_name]
         phase_record = phase_records[phase_name]
         points = points_dict[phase_name]
+        points_were_generated = points is None
         if points is None:
             collected_points_arrays = []
             for index in np.ndindex(plc_shape):
@@ -548,7 +562,7 @@ def calculate(dbf, comps, phases, mode=None, output='GM', fake_points=False, bro
         points = np.atleast_2d(points)
 
         phase_condition_keys = [key for key in phase_local_conditions if key.phase_name == phase_name]
-        if phase_condition_keys:
+        if points_were_generated and phase_condition_keys:
             has_valid_constitution = np.any(np.all(np.isfinite(points), axis=-1), axis=-1)
             num_condition_combinations_without_points = np.count_nonzero(~has_valid_constitution)
             if num_condition_combinations_without_points:

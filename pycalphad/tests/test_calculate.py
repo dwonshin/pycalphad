@@ -328,6 +328,19 @@ def test_phase_local_conditions_infeasible_charged_phase(load_database):
 def test_phase_local_conditions_infeasible_fixed_composition_phase(load_database):
     """Fixed-composition phases reject incompatible phase-local conditions."""
     dbf = load_database()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        feasible_result = calculate(
+            dbf,
+            ['AL', 'O', 'VA'],
+            'AL2O3_C',
+            T=1500,
+            P=101325,
+            N=1,
+            conditions={v.X('AL2O3_C', 'O'): 0.6},
+        )
+    assert np.any(np.isfinite(feasible_result.GM.values))
+
     warning_pattern = (
         r"No valid constitution points were generated for 1 of 1 phase-local condition "
         r"combinations in phase AL2O3_C"
@@ -368,11 +381,12 @@ def test_phase_local_condition_grid_reports_only_infeasible_combinations(load_da
     assert np.any(np.isfinite(res.GM.values[1]))
 
 
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
 @select_database("al2o3_nd2o3_zro2.tdb")
-def test_explicit_invalid_points_are_not_misclassified_as_sampling_infeasibility(load_database):
+def test_explicit_invalid_points_are_not_misclassified_as_sampling_infeasibility(load_database, invalid_value):
     """Caller-provided invalid points do not produce a sampler diagnostic."""
     dbf = load_database()
-    explicit_points = np.full((1, 5), np.nan)
+    explicit_points = np.full((1, 5), invalid_value)
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         res = calculate(
