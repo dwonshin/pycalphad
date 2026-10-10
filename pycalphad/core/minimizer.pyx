@@ -1,8 +1,19 @@
+# Purpose: Assemble and solve the low-level phase and global equilibrium systems.
+# Created: Pre-existing; original creation date is preserved in repository history.
+# Authoring agent/model: Original authors unknown; constraint-rank diagnostics
+# added by OpenAI Codex (gpt-5.6-sol) on 2026-10-10.
+# Rationale: Keep numerical minimization and opt-in structural diagnostics close
+# to the matrices they inspect.
+# Inputs: Phase records, composition sets, conditions, and solver state.
+# Outputs: Updated equilibrium state plus optional debugging text; no persistent
+# side effects.
+
 cimport cython
 import numpy as np
 cimport numpy as np
 from pycalphad.core.composition_set cimport CompositionSet
 from pycalphad.core.constants import MIN_SITE_FRACTION
+from pycalphad.core.rank_diagnostics import analyze_constraint_jacobian
 cimport scipy.linalg.cython_lapack as cython_lapack
 from libc.stdlib cimport malloc, free
 from libc.math cimport isnan
@@ -681,6 +692,26 @@ cdef class SystemState:
             compset.phase_record.internal_cons_func(csst.internal_cons, x)
 
             compute_phase_matrix(csst.phase_matrix, csst.hess, csst.cons_jac_tmp, csst.phase_local_jac_tmp, csst.mass_hess_tmp, compset, spec.num_statevars, self.chemical_potentials, x)
+            if spec.debugging_output:
+                constraint_jacobian = np.asarray(csst.cons_jac_tmp)[:, spec.num_statevars:]
+                row_labels = []
+                for cons_idx in range(compset.phase_record.num_internal_cons):
+                    row_labels.append(f"internal_cons[{cons_idx}]")
+                if compset.num_phase_local_conditions > 0:
+                    constraint_jacobian = np.vstack([
+                        constraint_jacobian,
+                        np.asarray(csst.phase_local_jac_tmp)[:, spec.num_statevars:],
+                    ])
+                    for cons_idx in range(compset.num_phase_local_conditions):
+                        row_labels.append(f"phase_local_cons[{cons_idx}]")
+                rank_report = analyze_constraint_jacobian(
+                    constraint_jacobian,
+                    row_labels,
+                )
+                if rank_report is not None:
+                    print(rank_report.format(
+                        f"phase={compset.phase_record.phase_name}:cs{idx}"
+                    ))
             # Copy the phase matrix into the e matrix and invert the e matrix
             for i in range(csst.full_e_matrix.shape[0]):
                 for j in range(csst.full_e_matrix.shape[1]):

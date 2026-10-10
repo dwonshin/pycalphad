@@ -21,7 +21,7 @@ from pycalphad.core.rank_diagnostics import (
     analyze_constraint_jacobian,
 )
 from pycalphad.core.solver import Solver
-from pycalphad.tests.fixtures import select_database
+from pycalphad.tests.fixtures import load_database, select_database
 
 
 RANK_DIAGNOSTIC_PREFIX = "!! RANK DEFICIENT CONSTRAINT JACOBIAN"
