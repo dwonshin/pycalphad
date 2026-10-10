@@ -289,8 +289,10 @@ def test_phase_local_conditions_charged_phase(load_database):
     # X(O) is accessible in [0, 0.6] for this phase; the upper bound comes from
     # a fully occupied anion sublattice charge-balanced by +3 cations with
     # vacancies on the remaining cation sites: (TI+3 2/3, VA 1/3)(O-2)
-    res = calculate(dbf, comps, 'HALITE_B1', T=873.15, P=101325, N=1, pdens=10,
-                    conditions={v.X('HALITE_B1', 'O'): 0.55})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        res = calculate(dbf, comps, 'HALITE_B1', T=873.15, P=101325, N=1, pdens=10,
+                        conditions={v.X('HALITE_B1', 'O'): 0.55})
     x_o = res.X.sel(component='O').values
     x_o = x_o[~np.isnan(x_o)]
     assert x_o.size > 0
@@ -311,7 +313,12 @@ def test_phase_local_conditions_infeasible_charged_phase(load_database):
     dbf = load_database()
     comps = ['AL', 'ND', 'ZR', 'O', 'VA']
     # X(O)=0.25 is outside the accessible range [0.6, 2/3] of this phase
-    with pytest.warns(UserWarning, match="phase-local conditions and internal constraints may be infeasible together"):
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 1 phase-local condition "
+        r"combinations in phase FLUO; the phase-local conditions and internal constraints "
+        r"may be infeasible together"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
         res = calculate(dbf, comps, 'FLUO', T=1500, P=101325, N=1, pdens=10,
                         conditions={v.X('FLUO', 'O'): 0.25})
     assert np.all(np.isnan(res.GM.values))

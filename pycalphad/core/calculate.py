@@ -1,6 +1,12 @@
-"""
-The calculate module contains a routine for calculating the
-property surface of a system.
+"""Calculate thermodynamic property surfaces and sample phase constitutions.
+
+Purpose: Build calculation grids, evaluate phase records, and report sampling failures.
+Created: Pre-existing file; provenance header updated 2026-10-10.
+Authoring agent/model: PyCalphad contributors; header updated by OpenAI Codex
+    (exact model identifier unavailable).
+Rationale: Centralize calculation behavior and bounded feasibility diagnostics.
+Inputs: Databases, components, phases, models, conditions, samplers, and parameters.
+Outputs: Calculation datasets plus explicit warnings/errors; no persistent side effects.
 """
 
 import itertools
@@ -540,6 +546,20 @@ def calculate(dbf, comps, phases, mode=None, output='GM', fake_points=False, bro
                 # Assumes all points arrays for this phase will be the same shape (no zero-solutions)
                 points = np.array(collected_points_arrays).reshape(plc_shape + collected_points_arrays[0].shape)
         points = np.atleast_2d(points)
+
+        phase_condition_keys = [key for key in phase_local_conditions if key.phase_name == phase_name]
+        if phase_condition_keys:
+            has_valid_constitution = np.any(np.all(np.isfinite(points), axis=-1), axis=-1)
+            num_condition_combinations_without_points = np.count_nonzero(~has_valid_constitution)
+            if num_condition_combinations_without_points:
+                warnings.warn(
+                    f"No valid constitution points were generated for "
+                    f"{num_condition_combinations_without_points} of {has_valid_constitution.size} "
+                    f"phase-local condition combinations in phase {phase_name}; the phase-local "
+                    "conditions and internal constraints may be infeasible together.",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         fp = fake_points and (phase_name == sorted(active_phases)[0])
         phase_ds = _compute_phase_values(nonvacant_components, str_statevar_dict, str_phase_local_conditions,
