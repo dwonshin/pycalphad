@@ -1,14 +1,14 @@
 """Shared infrastructure for thermodynamic mapping strategies.
 
 Purpose: Initialize mapping systems and coordinate node, exit, and ZPF-line
-    continuation for the concrete mapping strategies.
+continuation for the concrete mapping strategies.
 Created: Pre-existing; provenance header expanded 2026-10-10.
 Authoring agent/model: Original authors unknown; endpoint-status handling and
-    provenance header added by gpt-5.6-sol.
+provenance header added by gpt-5.6-sol.
 Rationale: Centralize mapping lifecycle behavior so all strategies share the
-    same termination and continuation semantics.
+same termination and continuation semantics.
 Inputs: Thermodynamic databases, components, phases, conditions, models, phase
-    records, mapping points, and numerical strategy options.
+records, mapping points, and numerical strategy options.
 Outputs: Mapping nodes and ZPF lines; updates strategy state in memory.
 """
 

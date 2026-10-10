@@ -3,7 +3,7 @@
 Purpose: Build calculation grids, evaluate phase records, and report sampling failures.
 Created: Pre-existing file; provenance header updated 2026-10-10.
 Authoring agent/model: PyCalphad contributors; header updated by OpenAI Codex
-    (exact model identifier unavailable).
+(exact model identifier unavailable).
 Rationale: Centralize calculation behavior and bounded feasibility diagnostics.
 Inputs: Databases, components, phases, models, conditions, samplers, and parameters.
 Outputs: Calculation datasets plus explicit warnings/errors; no persistent side effects.
