@@ -92,6 +92,14 @@ Charged compound-energy formalism (CEF) and ionic liquids
   failure for those conditions; it is not a proof of physical infeasibility and
   is intentionally distinct from invalid caller-provided points or a later
   equilibrium-solver failure.
+- **Debug-only constraint rank diagnostics:** ``Solver(debugging_output=True)``
+  checks the row-normalized internal and phase-local constraint Jacobian for
+  each candidate composition set before its phase matrix is inverted. A report
+  names the phase, composition-set index, numerical row rank, and ordered source
+  rows only when the constraint block lacks full row rank. It does not diagnose
+  the global equilibrium matrix, Hessian conditioning, convergence, or
+  thermodynamic validity, and it does not identify which constraint should be
+  removed.
 - **Two-sublattice ionic liquid:** for phases marked with the two-sublattice
   ionic-liquid model, construction requires exactly two constituent sublattices
   and two site ratios. A synthetic singleton-cation and neutral-species case is
