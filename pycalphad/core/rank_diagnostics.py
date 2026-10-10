@@ -62,10 +62,20 @@ def analyze_constraint_jacobian(
     ):
         return None
 
-    row_norms = np.linalg.norm(matrix, axis=1)
-    normalized = np.zeros_like(matrix)
+    # Divide by the largest magnitude before taking the L2 norm. Computing the
+    # norm directly can overflow or underflow even when every entry is finite.
+    row_scales = np.max(np.abs(matrix), axis=1)
+    scaled = np.zeros_like(matrix)
     np.divide(
         matrix,
+        row_scales[:, np.newaxis],
+        out=scaled,
+        where=row_scales[:, np.newaxis] > 0.0,
+    )
+    row_norms = np.linalg.norm(scaled, axis=1)
+    normalized = np.zeros_like(matrix)
+    np.divide(
+        scaled,
         row_norms[:, np.newaxis],
         out=normalized,
         where=row_norms[:, np.newaxis] > 0.0,

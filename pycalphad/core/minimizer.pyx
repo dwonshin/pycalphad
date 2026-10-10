@@ -1,5 +1,5 @@
 # Purpose: Assemble and solve the low-level phase and global equilibrium systems.
-# Created: Pre-existing; original creation date is preserved in repository history.
+# Created: Pre-existing (original date unknown); header updated 2026-10-10.
 # Authoring agent/model: Original authors unknown; constraint-rank diagnostics
 # added by OpenAI Codex (gpt-5.6-sol) on 2026-10-10.
 # Rationale: Keep numerical minimization and opt-in structural diagnostics close
@@ -693,6 +693,9 @@ cdef class SystemState:
 
             compute_phase_matrix(csst.phase_matrix, csst.hess, csst.cons_jac_tmp, csst.phase_local_jac_tmp, csst.mass_hess_tmp, compset, spec.num_statevars, self.chemical_potentials, x)
             if spec.debugging_output:
+                # Every candidate composition set has a phase matrix inverted,
+                # including transient or metastable candidates. Diagnose each one
+                # and retain its state index in the report title.
                 constraint_jacobian = np.asarray(csst.cons_jac_tmp)[:, spec.num_statevars:]
                 row_labels = []
                 for cons_idx in range(compset.phase_record.num_internal_cons):
