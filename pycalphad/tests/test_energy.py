@@ -33,6 +33,34 @@ def test_sympify_safety():
         _sympify_string(teststr)
 
 
+@pytest.mark.parametrize(
+    ("constituent_definition", "constituent_sublattice_count"),
+    [
+        ("CONSTITUENT BAD:Y : A, B : !", 1),
+        ("CONSTITUENT BAD:Y : A : B : !", 2),
+    ],
+    ids=["one-constituent-sublattice", "site-ratio-mismatch"],
+)
+def test_ionic_liquid_2sl_requires_two_sublattices(
+    constituent_definition, constituent_sublattice_count
+):
+    tdb = f"""
+ELEMENT VA VACUUM 0 0 0 !
+ELEMENT A A 1 0 0 !
+ELEMENT B B 1 0 0 !
+PHASE BAD:Y % 1 1 !
+{constituent_definition}
+"""
+    dbf = Database(tdb)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"Phase 'BAD'.*requires exactly 2.*Got "
+        rf"{constituent_sublattice_count}.*and 1",
+    ):
+        Model(dbf, ["A", "B"], "BAD")
+
+
 def calculate_output(model, variables, output, mode='sympy'):
     """
     Calculate the value of the energy at a point.
