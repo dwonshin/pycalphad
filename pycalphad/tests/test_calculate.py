@@ -1,6 +1,12 @@
-"""
-The calculate test module verifies that calculate() calculates
-Model quantities correctly.
+"""Tests for calculation surfaces and constitution-sampling diagnostics.
+
+Purpose: Verify ``calculate()`` outputs, constraints, and failure diagnostics.
+Created: Pre-existing file; provenance header updated 2026-10-10.
+Authoring agent/model: PyCalphad contributors; header updated by OpenAI Codex
+    (exact model identifier unavailable).
+Rationale: Keep calculation behavior and diagnostic boundaries regression-tested.
+Inputs: Test databases, models, conditions, samplers, and phase records.
+Outputs: Pytest assertions and warning/error contracts; no persistent side effects.
 """
 
 import warnings
@@ -305,8 +311,9 @@ def test_phase_local_conditions_infeasible_charged_phase(load_database):
     dbf = load_database()
     comps = ['AL', 'ND', 'ZR', 'O', 'VA']
     # X(O)=0.25 is outside the accessible range [0.6, 2/3] of this phase
-    res = calculate(dbf, comps, 'FLUO', T=1500, P=101325, N=1, pdens=10,
-                    conditions={v.X('FLUO', 'O'): 0.25})
+    with pytest.warns(UserWarning, match="phase-local conditions and internal constraints may be infeasible together"):
+        res = calculate(dbf, comps, 'FLUO', T=1500, P=101325, N=1, pdens=10,
+                        conditions={v.X('FLUO', 'O'): 0.25})
     assert np.all(np.isnan(res.GM.values))
 
 
