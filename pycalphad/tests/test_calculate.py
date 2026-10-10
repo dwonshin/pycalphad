@@ -324,6 +324,72 @@ def test_phase_local_conditions_infeasible_charged_phase(load_database):
     assert np.all(np.isnan(res.GM.values))
 
 
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_phase_local_conditions_infeasible_fixed_composition_phase(load_database):
+    """Fixed-composition phases reject incompatible phase-local conditions."""
+    dbf = load_database()
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 1 phase-local condition "
+        r"combinations in phase AL2O3_C"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
+        res = calculate(
+            dbf,
+            ['AL', 'O', 'VA'],
+            'AL2O3_C',
+            T=1500,
+            P=101325,
+            N=1,
+            conditions={v.X('AL2O3_C', 'O'): 0.1},
+        )
+    assert np.all(np.isnan(res.GM.values))
+
+
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_phase_local_condition_grid_reports_only_infeasible_combinations(load_database):
+    """Diagnostics count infeasible entries in a mixed phase-local condition grid."""
+    dbf = load_database()
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 2 phase-local condition "
+        r"combinations in phase FLUO"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
+        res = calculate(
+            dbf,
+            ['AL', 'ND', 'ZR', 'O', 'VA'],
+            'FLUO',
+            T=1500,
+            P=101325,
+            N=1,
+            pdens=10,
+            conditions={v.X('FLUO', 'O'): [0.25, 0.62]},
+        )
+    assert np.all(np.isnan(res.GM.values[0]))
+    assert np.any(np.isfinite(res.GM.values[1]))
+
+
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_explicit_invalid_points_are_not_misclassified_as_sampling_infeasibility(load_database):
+    """Caller-provided invalid points do not produce a sampler diagnostic."""
+    dbf = load_database()
+    explicit_points = np.full((1, 5), np.nan)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        res = calculate(
+            dbf,
+            ['AL', 'ND', 'ZR', 'O', 'VA'],
+            'FLUO',
+            T=1500,
+            P=101325,
+            N=1,
+            points=explicit_points,
+            conditions={v.X('FLUO', 'O'): 0.25},
+        )
+    diagnostic_fragment = "phase-local conditions and internal constraints may be infeasible together"
+    assert not any(diagnostic_fragment in str(warning.message) for warning in caught_warnings)
+    assert np.all(np.isnan(res.GM.values))
+
+
 @pytest.mark.filterwarnings("ignore:The order-disorder model for \"BCC_4SL\" has a contribution from the physical property model*:UserWarning")
 @pytest.mark.filterwarnings("ignore:The order-disorder model for \"BCC_NOB\" has a contribution from the physical property model*:UserWarning")
 @select_database("Al-Fe_sundman2009.tdb")
