@@ -12,6 +12,8 @@ Outputs: Pytest pass/fail results and captured diagnostic text; no persistent
 side effects.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -50,12 +52,24 @@ def test_constraint_rank_report_is_invariant_to_row_scale(row_scale):
     )
 
 
-def test_constraint_rank_report_ignores_full_row_rank_and_nonfinite_inputs():
+@pytest.mark.parametrize("row_scale", [1e-200, 1e-100, 1.0, 1e100, 1e200])
+def test_constraint_rank_report_ignores_scaled_full_row_rank_without_warning(
+    row_scale,
+):
     labels = ("internal_cons[0]", "internal_cons[1]")
 
-    assert analyze_constraint_jacobian(
-        np.diag([1e-100, 1e100]), labels
-    ) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        report = analyze_constraint_jacobian(
+            np.diag([1.0, row_scale]), labels
+        )
+
+    assert report is None
+
+
+def test_constraint_rank_report_ignores_nonfinite_input():
+    labels = ("internal_cons[0]", "internal_cons[1]")
+
     assert analyze_constraint_jacobian(
         np.array([[1.0, 0.0], [np.nan, 1.0]]), labels
     ) is None
