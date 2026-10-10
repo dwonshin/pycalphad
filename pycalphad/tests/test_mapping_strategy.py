@@ -1,3 +1,21 @@
+"""Integration tests for thermodynamic mapping strategies.
+
+Purpose: Verify binary, ternary, step, and isopleth mapping behavior, including
+    bounded structural contracts for specialized thermodynamic models.
+Created: Pre-existing; provenance header expanded 2026-10-10.
+Authoring agent/model: Original authors unknown; MQMQA and charged-CEF mapping
+    contracts added by gpt-5.6-sol.
+Rationale: Keep end-to-end mapping regressions and model-specific continuation
+    checks in the project's established mapping integration-test module.
+Inputs: Inline and packaged databases, mapping conditions, and strategy objects.
+Outputs: Pytest pass/fail results and transient matplotlib figures.
+
+Full maps check that intended phase regions appear, but generally do not reject
+extra regions. Focused edge cases should seed or traverse only the relevant map
+path. Some order-disorder and ionic-liquid models have historically exposed
+read-only-array failures while updating composition sets.
+"""
+
 import copy
 from importlib.resources import files
 
@@ -20,17 +38,10 @@ from pycalphad.mapping.plotting import get_label
 
 import pycalphad.tests.databases
 
-"""
-These tests goes through the full binary, ternary, step and isopleth process to check if all the intended phase regions show up
+# Bounds mapped MQMQA simplex residuals; the fixture's observed maximum is
+# 4.88e-15 across 32 MSCL composition sets.
+MAX_MQMQA_MAPPING_INTERNAL_CONSTRAINT_RESIDUAL = 1e-10
 
-For specific edge cases, it would be better to initialize a strategy near the edge case and step into it rather than doing the full map
-
-NOTES:
-    The isopleth test does not cover the invariant node exit finding with the current database
-    Some order-disorder and ionic liquid models run into a ValueError: buffer source array is read-only when trying
-        update a composition set. The databases here avoids these cases, but we'll need to address this
-    The current tests will not check if mapping created more phase regions than expected
-"""
 
 @select_database("alcocrni.tdb")
 def test_binary_strategy(load_database):
@@ -66,6 +77,77 @@ def test_binary_strategy(load_database):
     strategy.add_nodes_from_conditions({v.T: 1600, v.P: 101325, v.X('CR'): 0.6})
     new_num_nodes = len(strategy.node_queue.nodes)
     assert new_num_nodes == num_nodes + 2
+
+
+@select_database("2026-Dixon-Na-K-Cl-I.dat")
+def test_binary_mapping_mqmqa_preserves_quadruplet_simplex(load_database):
+    """MQMQA coexistence mapping preserves its fixed condition and DOF simplex."""
+    dbf = load_database()
+    components = ["NA", "K", "CL"]
+    phases = [
+        "MSCL",
+        "CLNA_NACL_FM3M_NO.225(S)",
+        "KCL_FM3M_NO.225(S)",
+    ]
+    models = instantiate_models(dbf, components, phases)
+    strategy = BinaryStrategy(
+        dbf,
+        components,
+        phases,
+        {
+            v.T: (800.0, 1200.0, 20.0),
+            v.P: 101325.0,
+            v.X("CL"): 0.5,
+            v.X("NA"): (0.01, 0.49, 0.02),
+        },
+        models=models,
+    )
+
+    strategy.do_map()
+
+    terminal_statuses = {ZPFState.REACHED_LIMIT, ZPFState.NEW_NODE_FOUND}
+    assert strategy.zpf_lines
+    assert all(line.status in terminal_statuses for line in strategy.zpf_lines)
+    assert any("MSCL" in line.stable_phases for line in strategy.zpf_lines)
+
+    mscl_composition_sets = []
+    for line in strategy.zpf_lines:
+        for point in line.points:
+            assert np.isclose(
+                float(np.asarray(point.get_property(v.X("CL"))).item()),
+                0.5,
+                atol=1e-8,
+                rtol=0.0,
+            )
+            mscl_composition_sets.extend(
+                composition_set
+                for composition_set in point.stable_composition_sets
+                if composition_set.phase_record.phase_name == "MSCL"
+            )
+
+    assert mscl_composition_sets
+    for composition_set in mscl_composition_sets:
+        num_state_variables = len(composition_set.phase_record.state_variables)
+        quadruplet_values = np.asarray(composition_set.dof)[num_state_variables:]
+        phase_record_variables = tuple(composition_set.phase_record.variables)
+        model_variables = tuple(models["MSCL"].site_fractions)
+
+        assert phase_record_variables == model_variables
+        assert len(quadruplet_values) == len(phase_record_variables)
+        substitutions = dict(zip(phase_record_variables, quadruplet_values))
+        constraint_residuals = np.array(
+            [
+                float(constraint.subs(substitutions))
+                for constraint in models["MSCL"].get_internal_constraints()
+            ]
+        )
+
+        assert np.all(np.isfinite(quadruplet_values))
+        assert np.min(quadruplet_values) >= -1e-12
+        assert abs(np.sum(quadruplet_values) - 1.0) <= 1e-10
+        assert np.max(np.abs(constraint_residuals)) <= (
+            MAX_MQMQA_MAPPING_INTERNAL_CONSTRAINT_RESIDUAL
+        )
 
 @select_database("crtiv_ghosh.tdb")
 def test_ternary_strategy(load_database):
@@ -203,6 +285,89 @@ def test_step_strategy_through_node(load_database):
 
     for dnz in desired_node_sets:
         assert dnz in node_sets
+
+
+@select_database("TiO-17Yan.tdb")
+def test_step_strategy_charged_cef_reaches_hard_axis_endpoints(load_database):
+    """Charged CEF continuation reaches both temperature limits cleanly."""
+    dbf = load_database()
+    components = ["TI", "O", "VA"]
+    phases = ["TI3O2", "TIO_ALPHA"]
+    models = instantiate_models(dbf, components, phases)
+    strategy = StepStrategy(
+        dbf,
+        components,
+        phases,
+        conditions={
+            v.T: (600.0, 640.0, 10.0),
+            v.P: 1e5,
+            v.X("O"): 0.41,
+        },
+        models=models,
+    )
+
+    strategy.do_map()
+
+    assert len(strategy.zpf_lines) == 2
+    assert {line.axis_direction for line in strategy.zpf_lines} == {
+        Direction.NEGATIVE,
+        Direction.POSITIVE,
+    }
+    assert all(
+        line.status is ZPFState.REACHED_LIMIT for line in strategy.zpf_lines
+    )
+    endpoints = {
+        line.axis_direction: float(line.points[-1].global_conditions[v.T])
+        for line in strategy.zpf_lines
+    }
+    assert np.isclose(
+        endpoints[Direction.NEGATIVE], 600.0, rtol=0.0, atol=1e-10
+    )
+    assert np.isclose(
+        endpoints[Direction.POSITIVE], 640.0, rtol=0.0, atol=1e-10
+    )
+
+    for line in strategy.zpf_lines:
+        assert set(line.stable_phases) == set(phases)
+        for point in line.points:
+            for composition_set in point.stable_composition_sets:
+                phase_name = composition_set.phase_record.phase_name
+                model = models[phase_name]
+                num_state_variables = len(
+                    composition_set.phase_record.state_variables
+                )
+                site_fraction_values = np.asarray(composition_set.dof)[
+                    num_state_variables:
+                ]
+                phase_record_variables = tuple(
+                    composition_set.phase_record.variables
+                )
+
+                assert phase_record_variables == tuple(model.site_fractions)
+                assert np.all(np.isfinite(site_fraction_values))
+                substitutions = dict(
+                    zip(phase_record_variables, site_fraction_values)
+                )
+                constraint_residuals = [
+                    abs(float(constraint.subs(substitutions)))
+                    for constraint in model.get_internal_constraints()
+                ]
+                assert max(constraint_residuals, default=0.0) <= 1e-10
+
+                charge_residual = 0.0
+                for sublattice_index, (sublattice, site_ratio) in enumerate(
+                    zip(model.constituents, model.site_ratios)
+                ):
+                    for species in sublattice:
+                        site_fraction = v.Y(
+                            phase_name, sublattice_index, species
+                        )
+                        charge_residual += (
+                            float(site_fraction.subs(substitutions))
+                            * float(species.charge)
+                            * float(site_ratio)
+                        )
+                assert abs(charge_residual) <= 1e-10
 
 @select_database("crtiv_ghosh.tdb")
 def test_unary_strategy(load_database):

@@ -1,6 +1,12 @@
-"""
-The calculate test module verifies that calculate() calculates
-Model quantities correctly.
+"""Tests for calculation surfaces and constitution-sampling diagnostics.
+
+Purpose: Verify ``calculate()`` outputs, constraints, and failure diagnostics.
+Created: Pre-existing file; provenance header updated 2026-10-10.
+Authoring agent/model: PyCalphad contributors; header updated by OpenAI Codex
+    (exact model identifier unavailable).
+Rationale: Keep calculation behavior and diagnostic boundaries regression-tested.
+Inputs: Test databases, models, conditions, samplers, and phase records.
+Outputs: Pytest assertions and warning/error contracts; no persistent side effects.
 """
 
 import warnings
@@ -283,8 +289,10 @@ def test_phase_local_conditions_charged_phase(load_database):
     # X(O) is accessible in [0, 0.6] for this phase; the upper bound comes from
     # a fully occupied anion sublattice charge-balanced by +3 cations with
     # vacancies on the remaining cation sites: (TI+3 2/3, VA 1/3)(O-2)
-    res = calculate(dbf, comps, 'HALITE_B1', T=873.15, P=101325, N=1, pdens=10,
-                    conditions={v.X('HALITE_B1', 'O'): 0.55})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        res = calculate(dbf, comps, 'HALITE_B1', T=873.15, P=101325, N=1, pdens=10,
+                        conditions={v.X('HALITE_B1', 'O'): 0.55})
     x_o = res.X.sel(component='O').values
     x_o = x_o[~np.isnan(x_o)]
     assert x_o.size > 0
@@ -305,8 +313,94 @@ def test_phase_local_conditions_infeasible_charged_phase(load_database):
     dbf = load_database()
     comps = ['AL', 'ND', 'ZR', 'O', 'VA']
     # X(O)=0.25 is outside the accessible range [0.6, 2/3] of this phase
-    res = calculate(dbf, comps, 'FLUO', T=1500, P=101325, N=1, pdens=10,
-                    conditions={v.X('FLUO', 'O'): 0.25})
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 1 phase-local condition "
+        r"combinations in phase FLUO; the phase-local conditions and internal constraints "
+        r"may be infeasible together"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
+        res = calculate(dbf, comps, 'FLUO', T=1500, P=101325, N=1, pdens=10,
+                        conditions={v.X('FLUO', 'O'): 0.25})
+    assert np.all(np.isnan(res.GM.values))
+
+
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_phase_local_conditions_infeasible_fixed_composition_phase(load_database):
+    """Fixed-composition phases reject incompatible phase-local conditions."""
+    dbf = load_database()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        feasible_result = calculate(
+            dbf,
+            ['AL', 'O', 'VA'],
+            'AL2O3_C',
+            T=1500,
+            P=101325,
+            N=1,
+            conditions={v.X('AL2O3_C', 'O'): 0.6},
+        )
+    assert np.any(np.isfinite(feasible_result.GM.values))
+
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 1 phase-local condition "
+        r"combinations in phase AL2O3_C"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
+        res = calculate(
+            dbf,
+            ['AL', 'O', 'VA'],
+            'AL2O3_C',
+            T=1500,
+            P=101325,
+            N=1,
+            conditions={v.X('AL2O3_C', 'O'): 0.1},
+        )
+    assert np.all(np.isnan(res.GM.values))
+
+
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_phase_local_condition_grid_reports_only_infeasible_combinations(load_database):
+    """Diagnostics count infeasible entries in a mixed phase-local condition grid."""
+    dbf = load_database()
+    warning_pattern = (
+        r"No valid constitution points were generated for 1 of 2 phase-local condition "
+        r"combinations in phase FLUO"
+    )
+    with pytest.warns(UserWarning, match=warning_pattern):
+        res = calculate(
+            dbf,
+            ['AL', 'ND', 'ZR', 'O', 'VA'],
+            'FLUO',
+            T=1500,
+            P=101325,
+            N=1,
+            pdens=10,
+            conditions={v.X('FLUO', 'O'): [0.25, 0.62]},
+        )
+    assert np.all(np.isnan(res.GM.values[0]))
+    assert np.any(np.isfinite(res.GM.values[1]))
+
+
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf])
+@select_database("al2o3_nd2o3_zro2.tdb")
+def test_explicit_invalid_points_are_not_misclassified_as_sampling_infeasibility(load_database, invalid_value):
+    """Caller-provided invalid points do not produce a sampler diagnostic."""
+    dbf = load_database()
+    explicit_points = np.full((1, 5), invalid_value)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        res = calculate(
+            dbf,
+            ['AL', 'ND', 'ZR', 'O', 'VA'],
+            'FLUO',
+            T=1500,
+            P=101325,
+            N=1,
+            points=explicit_points,
+            conditions={v.X('FLUO', 'O'): 0.25},
+        )
+    diagnostic_fragment = "phase-local conditions and internal constraints may be infeasible together"
+    assert not any(diagnostic_fragment in str(warning.message) for warning in caught_warnings)
     assert np.all(np.isnan(res.GM.values))
 
 
